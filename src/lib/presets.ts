@@ -196,6 +196,8 @@ export interface BuildPromptArgs {
   lightingId: string;
   backgroundId: string;
   extra?: string;
+  /** Optional style-description block (see styleBlock() in gemini.ts). */
+  style?: string;
 }
 
 export function buildPrompt(a: BuildPromptArgs): string {
@@ -205,6 +207,7 @@ export function buildPrompt(a: BuildPromptArgs): string {
   const bg = BACKGROUNDS.find((x) => x.id === a.backgroundId) ?? BACKGROUNDS[0];
   const parts = [
     shot.prompt,
+    a.style?.trim() || "",
     `CAMERA: ${angle.prompt}`,
     `LIGHTING: ${light.prompt}`,
     `BACKGROUND / SETTING: ${bg.prompt}`,
@@ -214,12 +217,15 @@ export function buildPrompt(a: BuildPromptArgs): string {
   return parts.join("\n\n");
 }
 
-export function buildEditPrompt(instruction: string): string {
+export function buildEditPrompt(instruction: string, style?: string): string {
   return [
     `Edit the provided image according to this instruction: ${instruction.trim()}`,
     "Change ONLY what the instruction asks for. Everything else — the garment, its colour, print, trims, labels, the lighting and the composition — must remain identical to the input image.",
+    style?.trim() || "",
     FIDELITY_RULES,
-  ].join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 export function buildUpscalePrompt(): string {
@@ -230,7 +236,9 @@ export function buildUpscalePrompt(): string {
   ].join("\n\n");
 }
 
-export function buildTransformPrompt(transformId: string, detail: string): string {
+export function buildTransformPrompt(transformId: string, detail: string, style?: string): string {
   const t = TRANSFORMS.find((x) => x.id === transformId) ?? TRANSFORMS[0];
-  return [t.prompt, detail.trim() ? `REQUEST: ${detail.trim()}` : "", FIDELITY_RULES].filter(Boolean).join("\n\n");
+  return [t.prompt, detail.trim() ? `REQUEST: ${detail.trim()}` : "", style?.trim() || "", FIDELITY_RULES]
+    .filter(Boolean)
+    .join("\n\n");
 }

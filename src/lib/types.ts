@@ -1,4 +1,5 @@
-import type { JudgeScore } from "./gemini";
+import type { JudgeScore, StyleDescription } from "./gemini";
+import type { PlanId } from "./plans";
 import type { ShotType } from "./presets";
 
 export type ShotKind = "shot" | "edit" | "upscale" | "transform";
@@ -19,6 +20,7 @@ export interface Shot {
   score?: JudgeScore;
   scoreStatus: "idle" | "loading" | "done" | "error";
   demo?: boolean;
+  credits?: number;
   createdAt: number;
 }
 
@@ -39,4 +41,23 @@ export interface Settings {
   models: string[];
   perModel: number;
   size: "1K" | "2K";
+  /** Whether the style description is generated and fed into prompts. */
+  styleOn: boolean;
 }
+
+/** The signed-in client, as the studio sees them. No currency, ever. */
+export interface Me {
+  name: string;
+  plan: PlanId;
+  planLabel: string;
+  shotTypes: ShotType[];
+  creditsLeft: number;
+  creditsTotal: number;
+  percentLeft: number;
+  active: boolean;
+  demo: boolean;
+}
+
+export type StyleDraft = StyleDescription;
+
+export type StyleStatus = "idle" | "loading" | "ready" | "error";

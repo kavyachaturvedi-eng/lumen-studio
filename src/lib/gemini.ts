@@ -1,5 +1,9 @@
 import { GoogleGenAI } from "@google/genai";
 import type { Aspect } from "./presets";
+import type { StyleDescription } from "./style";
+
+export { STYLE_FIELDS, EMPTY_STYLE, styleBlock } from "./style";
+export type { StyleDescription } from "./style";
 
 export interface ImageInput {
   mimeType: string;
@@ -164,6 +168,83 @@ Return ONLY JSON in this exact shape, no markdown:
           ? "review"
           : "reject";
   return { ...s, overall, verdict, notes: String(parsed.notes ?? "").slice(0, 300) };
+}
+
+/* ---------------- Style description ---------------- */
+
+/**
+ * The brief a designer would normally hand a photographer, read straight off the
+ * product photo. Photographers told us they don't want to write this themselves —
+ * so the model drafts it and the user corrects whatever is wrong.
+ */
+export const DESCRIBE_MODEL = process.env.DESCRIBE_MODEL || "gemini-2.5-flash";
+
+export async function describeProduct(source: ImageInput): Promise<StyleDescription> {
+  if (DEMO_MODE) return demoDescription();
+
+  const prompt = `You are a fashion designer writing the style description you would hand to a product photographer.
+Look at this garment photo and describe ONLY what you can actually see. Never invent a brand, a fibre content, or a detail that is not visible — if something cannot be determined from the photo, say so plainly (e.g. "not visible in reference").
+
+Return ONLY JSON, no markdown, in exactly this shape:
+{
+ "product": "one line: what the garment is, e.g. 'Women's oversized cotton-poplin shirt, full button placket'",
+ "colour": "the exact shade as a stylist would name it, e.g. 'warm ecru with a faint grey cast'",
+ "fabric": "material, apparent weight and finish, e.g. 'mid-weight plain weave, matte, slight slub texture'",
+ "pattern": "print or pattern, its scale and placement — or 'solid, no print'",
+ "details": "visible trims: buttons, zips, topstitching, hardware, labels, pockets",
+ "fit": "cut, silhouette, length, how it hangs",
+ "styling": "how to style it for the shoot to show it at its best",
+ "mood": "the aesthetic direction the images should carry"
+}
+Keep each value to one or two sentences. Be concrete and visual, not marketing-speak.`;
+
+  const res = await ai().models.generateContent({
+    model: DESCRIBE_MODEL,
+    contents: [
+      {
+        role: "user",
+        parts: [{ text: prompt }, { inlineData: { mimeType: source.mimeType, data: source.data } }],
+      },
+    ],
+    config: { responseMimeType: "application/json", temperature: 0.2 },
+  });
+
+  let parsed: Partial<StyleDescription> = {};
+  try {
+    parsed = JSON.parse((res.text ?? "{}").replace(/^```json|```$/g, "").trim()) as Partial<StyleDescription>;
+  } catch {
+    parsed = {};
+  }
+  const pick = (k: keyof StyleDescription) => String(parsed[k] ?? "").slice(0, 400);
+  return {
+    product: pick("product"),
+    colour: pick("colour"),
+    fabric: pick("fabric"),
+    pattern: pick("pattern"),
+    details: pick("details"),
+    fit: pick("fit"),
+    styling: pick("styling"),
+    mood: pick("mood"),
+  };
+}
+
+function demoDescription(): Promise<StyleDescription> {
+  return new Promise((r) =>
+    setTimeout(
+      () =>
+        r({
+          product: "Demo — crew-neck short-sleeve tee, straight body",
+          colour: "Demo — deep navy with a cool cast",
+          fabric: "Demo — mid-weight jersey, matte, soft hand",
+          pattern: "Demo — solid, small chest label only",
+          details: "Demo — ribbed neckline, twin-needle hem, woven label at chest",
+          fit: "Demo — regular fit, hip length, straight side seams",
+          styling: "Demo — lay flat with sleeves squared, or fill lightly for shape",
+          mood: "Demo — clean, quiet, everyday premium",
+        }),
+      500,
+    ),
+  );
 }
 
 /* ---------------- Demo mode (no API key) ---------------- */

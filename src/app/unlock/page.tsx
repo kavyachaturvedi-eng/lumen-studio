@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { Suspense, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense } from "react";
 import { Logo } from "@/components/Logo";
 
 function UnlockForm() {
@@ -16,36 +15,40 @@ function UnlockForm() {
     e.preventDefault();
     setBusy(true);
     setErr(null);
-    const res = await fetch("/api/unlock", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ passcode: code }) });
+    const res = await fetch("/api/unlock", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ passcode: code }),
+    });
     const data = await res.json().catch(() => ({}));
     setBusy(false);
     if (res.ok && data.ok) router.replace(params.get("next") || "/");
-    else setErr(data.error || "Wrong passcode.");
+    else setErr(data.error || "That passcode isn't recognised.");
   }
 
   return (
-    <form onSubmit={submit} className="w-full max-w-sm rounded-2xl border border-stone-200 bg-white p-8 shadow-sm">
-      <div className="mb-6 flex items-center gap-3">
+    <form onSubmit={submit} className="card rise w-full max-w-sm p-8 shadow-sm">
+      <div className="mb-7 flex items-center gap-3">
         <Logo />
         <div>
           <h1 className="text-lg font-semibold tracking-tight">Lumen Studio</h1>
           <p className="text-xs text-stone-500">AI product photography</p>
         </div>
       </div>
-      <label className="label mb-2 block">Passcode</label>
+      <label className="label mb-2 block">Your passcode</label>
       <input
         autoFocus
         type="password"
         className="input"
         value={code}
         onChange={(e) => setCode(e.target.value)}
-        placeholder="Enter the studio passcode"
+        placeholder="Enter the passcode you were given"
       />
       {err && <p className="mt-2 text-xs text-red-600">{err}</p>}
       <button className="btn-primary mt-4 w-full" disabled={busy || !code}>
         {busy ? "Checking…" : "Enter studio"}
       </button>
-      <p className="mt-4 text-center text-[11px] text-stone-400">Private preview. Ask the studio owner for access.</p>
+      <p className="mt-5 text-center text-[11px] text-stone-400">Private studio. Ask the owner for access.</p>
     </form>
   );
 }

@@ -29,17 +29,21 @@ export function ScorePill({ score, small }: { score?: Shot["score"]; small?: boo
 export function Gallery({ shots, selectedId, onSelect, bestId }: Props) {
   if (!shots.length) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center rounded-2xl border border-dashed border-stone-200 p-10 text-center">
-        <div className="mb-3 grid grid-cols-3 gap-1.5 opacity-60">
-          {["Packshot", "Ghost", "Flat lay", "Lifestyle", "Hero", "Detail"].map((t) => (
-            <div key={t} className="grid h-14 w-16 place-items-center rounded-md bg-stone-100 text-[10px] text-stone-400">
+      <div className="flex flex-1 flex-col items-center justify-center rounded-2xl border border-dashed border-stone-300 bg-white/50 p-10 text-center">
+        <div className="mb-4 grid grid-cols-3 gap-2">
+          {["Flat lay", "Ghost", "Hero", "Detail", "Lifestyle", "Packshot"].map((t, i) => (
+            <div
+              key={t}
+              className="grid h-16 w-[72px] place-items-center rounded-lg bg-stone-100 text-[10px] font-medium text-stone-400"
+              style={{ opacity: 1 - i * 0.11 }}
+            >
               {t}
             </div>
           ))}
         </div>
-        <h2 className="text-base font-semibold">Your shots will land here</h2>
-        <p className="mt-1 max-w-sm text-sm text-stone-500">
-          Upload one photo, pick a shot type, and race both models. Every take is scored against your original for label, colour and shape fidelity — the best match is flagged.
+        <h2 className="text-base font-semibold tracking-tight">Your shots will land here</h2>
+        <p className="mt-1.5 max-w-sm text-sm leading-relaxed text-stone-500">
+          Upload one photo, pick a shot type, and race both models. Every take is scored against your original for label, colour and shape fidelity — the best match gets flagged.
         </p>
       </div>
     );

@@ -1,100 +1,162 @@
 # Lumen Studio
 
-Studio-grade AI product photography from a single photo. Upload one plain product shot and get packshots, ghost-mannequin, flat lays, lifestyle scenes, hero and macro images — every take is raced across Google's image models and **scored against your original for label, colour and cut fidelity**, so you keep the one that actually looks like your product.
+Studio-grade AI product photography from a single photo, sold to multiple clients on prepaid credits.
 
-Built with Next.js 16 · Tailwind v4 · `@google/genai`. Runs free on Vercel's Hobby tier; you pay only Gemini API usage.
+A client uploads one plain garment photo and gets packshots, ghost-mannequin, flat lays, lifestyle scenes, hero and macro shots — each take raced across two Gemini image models and **scored against the original for label, colour and cut fidelity**, so the one that actually looks like the product is the one that gets flagged.
 
-## What it does
+Next.js 16 · Tailwind v4 · `@google/genai` · Upstash/Vercel KV. Free to host on Vercel; you pay only Gemini usage.
 
-| Step | What happens |
+---
+
+## How the business side works
+
+- **You** hold one Gemini API key and fund it. You are the only person who ever sees money.
+- **Each client** gets their own passcode, plan and credit pool. They see a percentage and a credit count — never a rupee figure, never what the pool cost you.
+- **You manage everything** at `/admin`: add clients, change plans, top up credits, pause accounts, read their usage log.
+
+### Plans (cumulative)
+
+| Plan | Shot types unlocked | Default credits |
+| --- | --- | --- |
+| **Basic** | Flat lay, Ghost mannequin | 300 |
+| **Pro** | + Hero, Detail/macro | 900 |
+| **Max** | + Lifestyle, Packshot | 2,500 |
+
+Higher plans include everything below them, so a Max client never loses the shots they use most. Credit grants are defaults — you can set any number per client when you create them or top them up later.
+
+### What a shot costs, in credits
+
+| Action | Credits |
 | --- | --- |
-| **Upload** | One JPG/PNG. Downscaled in the browser to ≤1600px so uploads stay small. |
-| **Shot type** | Packshot · Ghost mannequin · Flat lay · Lifestyle · Hero · Detail/macro. Each sets sensible defaults for angle, light and background. |
-| **Camera / lighting / background** | Chips, each mapping to a precise prompt fragment (see `src/lib/presets.ts`). |
-| **Race models** | Nano Banana 2 (`gemini-3.1-flash-image`) and Nano Banana Pro (`gemini-3-pro-image`), 1–3 takes each, all fired in parallel. |
-| **Fidelity judge** | A cheap Gemini vision model compares every take with the original and scores label/print, colour/finish, cut/trims and realism (0–10 each, weighted to 0–100). The top score of the batch gets the **Best match** badge. |
-| **Edit by prompt** | "Whiter background", "remove the wrinkle on the left sleeve"… Only what you ask changes; the original photo is sent alongside as ground truth. |
-| **Upscale** | Re-render at 2K or 4K (4K = Pro only). |
-| **Transform** | New colourway, swap season, social crop, banner with copy space, fashion illustration. |
-| **Use as source** | Chain: turn any take into the reference for the next round (fidelity is still judged against the very first upload). |
-| **Download** | JPEG, named by shot/model/size. |
+| Flat lay / ghost mannequin | 1 per take |
+| Hero / detail / lifestyle / packshot | 2 per take |
+| Nano Banana Pro instead of Nano Banana 2 | ×2 |
+| 2K output | ×2 |
+| 4K output | ×3 |
+| Edit by prompt | 1 |
+| Transform | 1 |
+| Upscale | 2 (×2 at 2K, ×3 at 4K) |
+| Style description | free |
 
-Without an API key the app runs in **demo mode** (placeholder images and random scores) so you can click through the UI.
+**Calibration.** One credit is priced to cost you no more than one Nano Banana 2 image at 1K (≈ ₹6 at Sept-2026 Gemini prices; Nano Banana Pro at 1K ≈ ₹12 = 2 credits). Heavier work is deliberately priced *above* its true cost, so your margin never inverts when a client leans on 4K upscales. The default run — both models, 2 takes each, flat lay at 1K — is 6 credits.
 
-## 1 · Get a Gemini key
+Sizing: a 300-credit Basic pool is roughly 50 default runs. If a client is shooting a real catalog (say 100 SKUs across several shot types), size their pool accordingly rather than assuming the defaults will last.
 
-Simplest path — Gemini Developer API:
+Credits are reserved atomically *before* the Gemini call and refunded automatically if generation fails, so two parallel takes can never overspend a pool and nobody is ever charged for an error.
 
-1. Go to <https://aistudio.google.com/apikey> and create a key (enable billing on the project for the Pro model).
-2. That's `GEMINI_API_KEY`.
+---
 
-Vertex AI path (if you prefer your GCP project): leave `GEMINI_API_KEY` empty and set `GOOGLE_CLOUD_PROJECT` (+ `GOOGLE_CLOUD_LOCATION`, default `global`). Locally, `gcloud auth application-default login`; on Vercel you'd need a service-account JSON via `GOOGLE_APPLICATION_CREDENTIALS` — the API-key path is far easier there.
+## The style description
 
-Rough cost (Sept 2026 list prices): Nano Banana 2 ≈ $0.06–0.16 per image depending on resolution, Nano Banana Pro ≈ $0.15 per 1K image, more at 2K/4K; the judge call is fractions of a cent. A default run (2 models × 2 takes + 4 judge calls) is roughly $0.40–0.50.
+Photographers said the style description is the thing a designer normally hands them, and they don't want to write it. So the app writes it.
 
-## 2 · Run locally
+On upload, a cheap Gemini vision call reads the photo and drafts the brief — product, colour, fabric and finish, print/pattern, trims and details, fit and silhouette, styling, mood. Every field is editable; the client corrects whatever the model got wrong, and the corrected version is what goes into every generation, edit and transform prompt as ground truth.
+
+It's a toggle. Off, the app behaves as before and only the free-text art-direction box feeds the prompt. It costs no credits either way.
+
+---
+
+## Setup
+
+### 1. Gemini key
+
+<https://aistudio.google.com/apikey> → create a key → **enable billing** on that Cloud project (Nano Banana Pro needs it). Use a personal account, not your employer's.
+
+### 2. Storage (Upstash / Vercel KV)
+
+Clients and credit balances need a database. In the Vercel dashboard: Storage → create an Upstash Redis (KV) store → connect it to the project. Vercel injects `KV_REST_API_URL` and `KV_REST_API_TOKEN` automatically.
+
+Without these the app still runs, but accounts live in memory and vanish on restart — the admin panel shows a warning when that's the case.
+
+### 3. Environment variables
+
+| Variable | What it's for |
+| --- | --- |
+| `GEMINI_API_KEY` | Your Gemini Developer API key |
+| `ADMIN_PASSCODE` | Your owner passcode for `/admin` |
+| `SESSION_SECRET` | Long random string; signs session cookies |
+| `KV_REST_API_URL` / `KV_REST_API_TOKEN` | Upstash/Vercel KV |
+| `SEED_CLIENT_PASSCODE` *(optional)* | Creates one Max client on first run |
+| `JUDGE_MODEL` / `DESCRIBE_MODEL` *(optional)* | Default `gemini-2.5-flash` |
+
+Vertex AI instead of an API key: set `GOOGLE_CLOUD_PROJECT` (+ `GOOGLE_CLOUD_LOCATION`) and leave `GEMINI_API_KEY` empty.
+
+### 4. Run locally
 
 ```bash
 npm install
-cp .env.example .env.local     # fill in GEMINI_API_KEY and APP_PASSCODE
+cp .env.example .env.local     # fill in the values above
 npm run dev                    # http://localhost:3000
 ```
 
-## 3 · Deploy free on Vercel
+Open `/admin`, sign in with `ADMIN_PASSCODE`, add your first client, then open `/` and use their passcode.
 
-1. Push this folder to a GitHub repo (private is fine).
-2. <https://vercel.com/new> → Import the repo → Framework: Next.js (auto-detected).
-3. **Environment Variables** — add:
-   - `GEMINI_API_KEY` = your key
-   - `APP_PASSCODE` = the shared passcode you'll give your client
-   - (optional) `JUDGE_MODEL` = `gemini-2.5-flash` (default) or any cheap multimodal Gemini model
-4. Deploy. You'll get `https://<project>.vercel.app`. Share the URL + passcode with your client.
+### 5. Deploy on Vercel
 
-Notes for the Hobby tier:
-- Functions can run up to 300 s (Fluid Compute is on by default for new projects). `maxDuration` is already set in the API routes. If your project shows a 10 s/60 s limit, enable Fluid Compute in Project Settings → Functions.
-- Response bodies are capped around 4.5 MB. Outputs are re-encoded as JPEG to stay under that; if a 4K upscale ever fails for size, use 2K.
-- Each generation is its own request, so the browser fans out the parallel work — nothing is blocked on the slowest model.
+Push to a private GitHub repo → import at <https://vercel.com/new> → add the environment variables → deploy. Check Project → Settings → Functions that **Fluid Compute** is on, so a 4K Pro render has its full 300 seconds.
 
-## 4 · Access control
+Changing an environment variable needs a redeploy to take effect.
 
-The whole app (pages *and* API routes) sits behind a shared passcode enforced in `src/proxy.ts`. The cookie holds an HMAC, never the passcode. Change the passcode by changing the env var — every existing session is invalidated automatically. Leave `APP_PASSCODE` empty only for local development.
+---
 
-Want per-user logins later? Swap `src/lib/auth.ts` for Clerk/Auth.js — the proxy only needs `isAuthed()` to keep working.
+## Day-to-day
 
-## Tuning for your client
+**Onboarding a client:** `/admin` → Add client → name, a passcode, a plan, credits → send them the URL and their passcode. That's the whole onboarding.
 
-Everything a merchandiser might want to change is data, not code:
+**Selling:** they pay you; you set their credit pool. Give the first shoot free, then grant credits on payment. The "Note" field on each client is a private place to record what they paid and when — only you ever see it.
 
-- `src/lib/presets.ts` — shot types, camera angles, lighting, backgrounds, transforms, aspect ratios, model list, and `FIDELITY_RULES` (the guard-rail text appended to every prompt).
-- `src/lib/gemini.ts` → `judgeCandidate` — the scoring rubric and weights (label 35 %, colour 25 %, shape 25 %, realism 15 %).
-- Add a shot type: add a key to `SHOT_TYPES` and a value to the `ShotType` union. The UI picks it up.
+**Top-ups:** enter a number next to their card and press Top up. It adds to the pool without resetting usage. "Reset meter" zeroes usage instead, putting them back at 100% of their existing pool.
+
+**Pausing:** Pause blocks both new generations and new sign-ins, and tells them to contact you. Reversible.
+
+**Passcodes:** "Add passcode" gives a client an additional working passcode (useful when someone leaves their team). Old ones keep working until you delete the client — if you need to revoke access immediately, delete and recreate.
+
+---
+
+## Tuning for a client
+
+Everything a merchandiser might change is data, not code:
+
+- `src/lib/presets.ts` — shot types, camera angles, lighting, backgrounds, transforms, and `FIDELITY_RULES` (the guard-rails appended to every prompt).
+- `src/lib/plans.ts` — plan contents, default credit grants, and the whole credit price list.
+- `src/lib/gemini.ts` → `judgeCandidate` — the scoring rubric and weights (label 35%, colour 25%, shape 25%, realism 15%); `describeProduct` — the style-description prompt.
+
+Camera-angle presets follow a fixed grammar — camera height, rotation, tilt, lens as a 35mm equivalent, framing percentage, depth of field — so results are repeatable rather than vibes.
+
+---
 
 ## Project layout
 
 ```
 src/
   app/
-    page.tsx              → <Studio />
-    unlock/page.tsx       passcode screen
-    api/generate/route.ts one image per request: shot | edit | upscale | transform
-    api/judge/route.ts    fidelity score for one candidate
-    api/unlock/route.ts   sets the session cookie
+    page.tsx                    the studio
+    unlock/                     client passcode screen
+    admin/                      owner panel + login
+    api/
+      unlock, me                client session and balance
+      describe                  style description (free)
+      generate                  shot | edit | upscale | transform, with plan gate + credit spend
+      judge                     fidelity score for one candidate
+      admin/login, admin/clients
   components/
-    Studio.tsx            state + orchestration (fan-out, judging, batches)
-    Controls.tsx          left panel
-    Gallery.tsx           ranked grid, Best match badge
-    Detail.tsx            selected take: score breakdown, edit / upscale / transform
+    Studio.tsx                  state, fan-out, credit reconciliation
+    Controls.tsx                left rail: upload, shot type, style, look, output
+    StylePanel.tsx              the editable designer brief
+    Gallery.tsx  Detail.tsx     ranked grid + selected take
+    CreditMeter.tsx             percentage only, never currency
+    Admin.tsx                   client management
   lib/
-    presets.ts            all the prompt vocabulary
-    gemini.ts             Gemini calls + demo mode
-    auth.ts               passcode HMAC helpers
-    client.ts             browser helpers (compression, fetches, download)
-  proxy.ts                route guard (Next 16 middleware)
+    plans.ts                    plans + credit price list
+    store.ts                    accounts, atomic credit spend, usage log
+    style.ts                    style-description shape (shared client/server)
+    gemini.ts  presets.ts  auth.ts  client.ts
+  proxy.ts                      client gate + admin gate
 ```
 
-## Roadmap ideas
+## Ideas next
 
-- Persist sessions (Vercel Blob / Supabase) so the client can come back to a shoot.
-- Batch mode: drop a folder of SKUs, get a CSV of best-match URLs for Shopify import.
-- Background removal + true transparent PNG packshots.
-- Video: 3-second turntable from the hero shot (Veo).
+- Per-client branding (logo and accent on their unlock screen).
+- Batch mode: drop a folder of SKUs, get a CSV of best-match images for Shopify import.
+- Email the client automatically when they drop below 10% credits.
+- True transparent-PNG packshots via background removal.

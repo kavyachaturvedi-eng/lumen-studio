@@ -1,6 +1,6 @@
 // Browser-side helpers: image compression + API calls.
-import type { JudgeScore } from "./gemini";
-import type { SourceImage } from "./types";
+import type { JudgeScore, StyleDescription } from "./gemini";
+import type { Me, SourceImage } from "./types";
 
 /** Downscale to ≤ maxEdge px and encode as JPEG so uploads stay small (Gemini wants ≲ 7MB inline). */
 export async function fileToSource(file: File, maxEdge = 1600): Promise<SourceImage> {
@@ -34,6 +34,12 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
+export interface CreditsInfo {
+  spent: number;
+  left: number;
+  percentLeft: number;
+}
+
 export interface GenerateResult {
   image: string;
   model: string;
@@ -42,13 +48,43 @@ export interface GenerateResult {
   demo: boolean;
   size: string;
   aspect: string;
+  credits?: CreditsInfo;
+}
+
+/** Errors that carry extra context the UI reacts to (upgrade prompt, out of credits). */
+export class ApiError extends Error {
+  status: number;
+  data: Record<string, unknown>;
+  constructor(message: string, status: number, data: Record<string, unknown>) {
+    super(message);
+    this.status = status;
+    this.data = data;
+  }
 }
 
 export async function callGenerate(body: Record<string, unknown>): Promise<GenerateResult> {
   const res = await fetch("/api/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  if (!res.ok) throw new ApiError(data.error || `HTTP ${res.status}`, res.status, data);
   return data as GenerateResult;
+}
+
+export async function callMe(): Promise<Me> {
+  const res = await fetch("/api/me");
+  const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data as Me;
+}
+
+export async function callDescribe(source: string): Promise<StyleDescription> {
+  const res = await fetch("/api/describe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ source }),
+  });
+  const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data.description as StyleDescription;
 }
 
 export async function callJudge(source: string, candidate: string, shotLabel: string): Promise<{ score: JudgeScore; demo: boolean }> {
