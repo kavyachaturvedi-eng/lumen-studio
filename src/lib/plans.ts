@@ -112,9 +112,13 @@ export function creditCost(input: CostInput): number {
   return Math.max(1, Math.ceil(base * m * s));
 }
 
-/** Total credits a whole generate batch will cost, for the "this run costs N" hint. */
-export function batchCost(shotType: ShotType, models: string[], perModel: number, size: string): number {
-  return models.reduce((sum, model) => sum + creditCost({ kind: "shot", shotType, model, size }) * perModel, 0);
+/**
+ * Total credits a whole generate batch will cost, for the "this run costs N" hint.
+ * Every camera angle is its own set of takes, so angles multiply the batch.
+ */
+export function batchCost(shotType: ShotType, models: string[], perModel: number, size: string, angles = 1): number {
+  const perAngle = models.reduce((sum, model) => sum + creditCost({ kind: "shot", shotType, model, size }) * perModel, 0);
+  return perAngle * Math.max(1, angles);
 }
 
 /** Human-readable price list for the admin panel and client help text. */
@@ -127,5 +131,5 @@ export const PRICE_LIST: Array<{ label: string; credits: string }> = [
   { label: "Edit by prompt", credits: "1" },
   { label: "Transform", credits: "1" },
   { label: "Upscale", credits: "2 (×2 at 2K, ×3 at 4K)" },
-  { label: "Style description", credits: "free" },
+  { label: "Each extra camera angle", credits: "repeats the run" },
 ];

@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Logo } from "@/components/Logo";
+import { AuthShell, PasscodeInput } from "@/components/AuthShell";
 
 export default function AdminLogin() {
   const router = useRouter();
@@ -26,22 +26,17 @@ export default function AdminLogin() {
   }
 
   return (
-    <main className="flex flex-1 items-center justify-center p-6">
-      <form onSubmit={submit} className="card rise w-full max-w-sm p-8">
-        <div className="mb-7 flex items-center gap-3">
-          <Logo />
-          <div>
-            <h1 className="text-lg font-semibold tracking-tight">Studio admin</h1>
-            <p className="text-xs text-stone-500">Clients, plans and credits</p>
-          </div>
-        </div>
-        <label className="label mb-2 block">Admin passcode</label>
-        <input autoFocus type="password" className="input" value={code} onChange={(e) => setCode(e.target.value)} placeholder="Owner passcode" />
-        {err && <p className="mt-2 text-xs text-red-600">{err}</p>}
-        <button className="btn-primary mt-4 w-full" disabled={busy || !code}>
+    <AuthShell title="Studio admin" subtitle="Clients, plans and credits.">
+      <form onSubmit={submit} className="space-y-4">
+        <label className="block">
+          <span className="label mb-2 block">Owner passcode</span>
+          <PasscodeInput autoFocus value={code} onChange={setCode} placeholder="ADMIN_PASSCODE" />
+        </label>
+        {err && <p className="text-[12px] text-[var(--bad)]">{err}</p>}
+        <button className="btn-primary w-full py-3" disabled={busy || !code}>
           {busy ? "Checking…" : "Sign in"}
         </button>
       </form>
-    </main>
+    </AuthShell>
   );
 }

@@ -11,6 +11,11 @@ import { PLANS, type PlanId } from "./plans";
 export interface ClientRecord {
   id: string;
   name: string;
+  /** Login name the client types on the unlock screen. Lowercase, unique. */
+  username?: string;
+  /** PBKDF2-SHA256 of the passcode, hex. Never leaves the server. */
+  passHash?: string;
+  passSalt?: string;
   plan: PlanId;
   creditsTotal: number;
   active: boolean;
@@ -19,7 +24,9 @@ export interface ClientRecord {
   lastActiveAt?: number;
 }
 
-export interface ClientWithUsage extends ClientRecord {
+export interface ClientWithUsage extends Omit<ClientRecord, "passHash" | "passSalt"> {
+  /** True once a username + passcode has been set. */
+  hasLogin: boolean;
   creditsUsed: number;
   creditsLeft: number;
   /** 0–100, what the client sees. Never a currency figure. */
@@ -37,7 +44,8 @@ const P = "lumen:";
 const kClient = (id: string) => `${P}client:${id}`;
 const kUsed = (id: string) => `${P}client:${id}:used`;
 const kLog = (id: string) => `${P}client:${id}:log`;
-const kPass = (hash: string) => `${P}pass:${hash}`;
+const kUser = (username: string) => `${P}user:${username}`;
+const kFail = (username: string) => `${P}fail:${username}`;
 const K_CLIENTS = `${P}clients`;
 
 /* ---------------- backend ---------------- */
@@ -63,17 +71,152 @@ const mem = {
   clients: new Map<string, ClientRecord>(),
   used: new Map<string, number>(),
   log: new Map<string, UsageEntry[]>(),
-  pass: new Map<string, string>(),
+  users: new Map<string, string>(),
+  fails: new Map<string, { count: number; until: number }>(),
 };
 
-/* ---------------- passcodes ---------------- */
+/* ---------------- logins ---------------- */
 
-export async function hashPasscode(passcode: string): Promise<string> {
-  const data = new TextEncoder().encode("lumen-passcode:" + passcode.trim());
-  const digest = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(digest))
+/** Failed sign-ins allowed per username before a cool-down. */
+const MAX_FAILS = 8;
+const LOCK_SECONDS = 15 * 60;
+const PBKDF2_ITERATIONS = 120_000;
+
+export const MIN_PASSCODE = 6;
+
+export function normalizeUsername(u: string): string {
+  return u.trim().toLowerCase();
+}
+
+/** 3–32 chars: letters, digits, dot, dash, underscore; starts with a letter or digit. */
+export function validUsername(u: string): boolean {
+  return /^[a-z0-9][a-z0-9._-]{2,31}$/.test(u);
+}
+
+function toHex(buf: ArrayBuffer | Uint8Array): string {
+  return Array.from(buf instanceof Uint8Array ? buf : new Uint8Array(buf))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
+}
+
+function fromHex(hex: string): Uint8Array<ArrayBuffer> {
+  const out = new Uint8Array(new ArrayBuffer(hex.length / 2));
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  return out;
+}
+
+async function hashPasscode(passcode: string, saltHex: string): Promise<string> {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(passcode), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", hash: "SHA-256", salt: fromHex(saltHex), iterations: PBKDF2_ITERATIONS },
+    key,
+    256,
+  );
+  return toHex(bits);
+}
+
+function sameHex(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let d = 0;
+  for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return d === 0;
+}
+
+async function rawClient(id: string): Promise<ClientRecord | null> {
+  const r = getRedis();
+  return r ? await r.get<ClientRecord>(kClient(id)) : (mem.clients.get(id) ?? null);
+}
+
+async function putClient(rec: ClientRecord): Promise<void> {
+  const r = getRedis();
+  if (r) await r.set(kClient(rec.id), rec);
+  else mem.clients.set(rec.id, rec);
+}
+
+export async function clientIdForUsername(username: string): Promise<string | null> {
+  const u = normalizeUsername(username);
+  const r = getRedis();
+  const id = r ? await r.get<string>(kUser(u)) : (mem.users.get(u) ?? null);
+  return id ?? null;
+}
+
+async function failCount(u: string): Promise<number> {
+  const r = getRedis();
+  if (r) return Number(await r.get<number>(kFail(u))) || 0;
+  const f = mem.fails.get(u);
+  if (!f || f.until < Date.now()) return 0;
+  return f.count;
+}
+
+async function recordFail(u: string): Promise<void> {
+  const r = getRedis();
+  if (r) {
+    const n = (await r.incr(kFail(u))) as number;
+    if (n === 1) await r.expire(kFail(u), LOCK_SECONDS);
+    return;
+  }
+  const f = mem.fails.get(u);
+  if (!f || f.until < Date.now()) mem.fails.set(u, { count: 1, until: Date.now() + LOCK_SECONDS * 1000 });
+  else f.count += 1;
+}
+
+async function clearFails(u: string): Promise<void> {
+  const r = getRedis();
+  if (r) await r.del(kFail(u));
+  else mem.fails.delete(u);
+}
+
+export type LoginResult = { ok: true; client: ClientWithUsage } | { ok: false; reason: "invalid" | "locked" };
+
+/**
+ * Check a username + passcode. Counts failures per username and locks that
+ * username for 15 minutes after repeated misses, so a short passcode can't be
+ * walked through by trying every combination.
+ */
+export async function verifyLogin(username: string, passcode: string): Promise<LoginResult> {
+  const u = normalizeUsername(username);
+  if (!u || !passcode) return { ok: false, reason: "invalid" };
+  if ((await failCount(u)) >= MAX_FAILS) return { ok: false, reason: "locked" };
+
+  const id = await clientIdForUsername(u);
+  const rec = id ? await rawClient(id) : null;
+  let good = false;
+  if (rec?.passHash && rec.passSalt) {
+    good = sameHex(await hashPasscode(passcode.trim(), rec.passSalt), rec.passHash);
+  } else {
+    // Spend the same time on unknown usernames so timing doesn't reveal which exist.
+    await hashPasscode(passcode, "00".repeat(16));
+  }
+  if (!good || !rec) {
+    await recordFail(u);
+    return { ok: false, reason: "invalid" };
+  }
+  await clearFails(u);
+  return { ok: true, client: await attachUsage(rec) };
+}
+
+/** Set (or replace) a client's username and passcode. The old ones stop working at once. */
+export async function setLogin(id: string, username: string, passcode: string): Promise<ClientWithUsage> {
+  const u = normalizeUsername(username);
+  if (!validUsername(u)) throw new Error("Username must be 3–32 characters: letters, numbers, dot, dash or underscore.");
+  if (passcode.trim().length < MIN_PASSCODE) throw new Error(`Passcode must be at least ${MIN_PASSCODE} characters.`);
+  const rec = await rawClient(id);
+  if (!rec) throw new Error("Client not found.");
+  const owner = await clientIdForUsername(u);
+  if (owner && owner !== id) throw new Error(`The username "${u}" is already taken.`);
+
+  const salt = toHex(crypto.getRandomValues(new Uint8Array(16)));
+  const next: ClientRecord = { ...rec, username: u, passSalt: salt, passHash: await hashPasscode(passcode.trim(), salt) };
+  const r = getRedis();
+  if (rec.username && rec.username !== u) {
+    if (r) await r.del(kUser(rec.username));
+    else mem.users.delete(rec.username);
+  }
+  if (r) await r.set(kUser(u), id);
+  else mem.users.set(u, id);
+  await putClient(next);
+  await clearFails(u);
+  return attachUsage(next);
 }
 
 /* ---------------- clients ---------------- */
@@ -116,19 +259,14 @@ async function attachUsage(rec: ClientRecord): Promise<ClientWithUsage> {
   const creditsUsed = Math.max(0, Number(usedRaw) || 0);
   const creditsLeft = Math.max(0, rec.creditsTotal - creditsUsed);
   const percentLeft = rec.creditsTotal > 0 ? Math.round((creditsLeft / rec.creditsTotal) * 100) : 0;
-  return { ...rec, creditsUsed, creditsLeft, percentLeft };
-}
-
-/** Resolve a passcode to a client id. Returns null if unknown. */
-export async function clientIdForPasscode(passcode: string): Promise<string | null> {
-  const hash = await hashPasscode(passcode);
-  const r = getRedis();
-  const id = r ? await r.get<string>(kPass(hash)) : (mem.pass.get(hash) ?? null);
-  return id ?? null;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { passHash, passSalt, ...safe } = rec;
+  return { ...safe, hasLogin: Boolean(passHash && rec.username), creditsUsed, creditsLeft, percentLeft };
 }
 
 export async function createClient(input: {
   name: string;
+  username: string;
   passcode: string;
   plan: PlanId;
   credits?: number;
@@ -137,7 +275,10 @@ export async function createClient(input: {
   const id = slugify(input.name);
   const existing = await getClient(id);
   if (existing) throw new Error(`A client called "${input.name}" already exists.`);
-  if (await clientIdForPasscode(input.passcode)) throw new Error("That passcode is already in use by another client.");
+  const u = normalizeUsername(input.username);
+  if (!validUsername(u)) throw new Error("Username must be 3–32 characters: letters, numbers, dot, dash or underscore.");
+  if (input.passcode.trim().length < MIN_PASSCODE) throw new Error(`Passcode must be at least ${MIN_PASSCODE} characters.`);
+  if (await clientIdForUsername(u)) throw new Error(`The username "${u}" is already taken.`);
 
   const rec: ClientRecord = {
     id,
@@ -148,28 +289,24 @@ export async function createClient(input: {
     note: input.note?.trim() || undefined,
     createdAt: Date.now(),
   };
-  const hash = await hashPasscode(input.passcode);
   const r = getRedis();
   if (r) {
-    await Promise.all([r.set(kClient(id), rec), r.set(kUsed(id), 0), r.set(kPass(hash), id), r.sadd(K_CLIENTS, id)]);
+    await Promise.all([r.set(kClient(id), rec), r.set(kUsed(id), 0), r.sadd(K_CLIENTS, id)]);
   } else {
     mem.clients.set(id, rec);
     mem.used.set(id, 0);
-    mem.pass.set(hash, id);
   }
-  return attachUsage(rec);
+  return setLogin(id, u, input.passcode);
 }
 
 export async function updateClient(
   id: string,
   patch: Partial<Pick<ClientRecord, "name" | "plan" | "creditsTotal" | "active" | "note" | "lastActiveAt">>,
 ): Promise<ClientWithUsage | null> {
-  const r = getRedis();
-  const rec = r ? await r.get<ClientRecord>(kClient(id)) : (mem.clients.get(id) ?? null);
+  const rec = await rawClient(id);
   if (!rec) return null;
   const next: ClientRecord = { ...rec, ...patch };
-  if (r) await r.set(kClient(id), next);
-  else mem.clients.set(id, next);
+  await putClient(next);
   return attachUsage(next);
 }
 
@@ -188,24 +325,22 @@ export async function resetUsage(id: string): Promise<ClientWithUsage | null> {
   return getClient(id);
 }
 
-export async function setPasscode(id: string, passcode: string): Promise<void> {
-  const owner = await clientIdForPasscode(passcode);
-  if (owner && owner !== id) throw new Error("That passcode is already in use by another client.");
-  const hash = await hashPasscode(passcode);
-  const r = getRedis();
-  if (r) await r.set(kPass(hash), id);
-  else mem.pass.set(hash, id);
-}
-
 export async function deleteClient(id: string): Promise<void> {
+  const rec = await rawClient(id);
   const r = getRedis();
   if (r) {
-    await Promise.all([r.del(kClient(id)), r.del(kUsed(id)), r.del(kLog(id)), r.srem(K_CLIENTS, id)]);
+    await Promise.all([
+      r.del(kClient(id)),
+      r.del(kUsed(id)),
+      r.del(kLog(id)),
+      r.srem(K_CLIENTS, id),
+      ...(rec?.username ? [r.del(kUser(rec.username))] : []),
+    ]);
   } else {
     mem.clients.delete(id);
     mem.used.delete(id);
     mem.log.delete(id);
-    for (const [h, cid] of mem.pass) if (cid === id) mem.pass.delete(h);
+    if (rec?.username) mem.users.delete(rec.username);
   }
 }
 
@@ -299,17 +434,19 @@ function safeParse(s: string): UsageEntry | null {
 /* ---------------- first-run seed ---------------- */
 
 /**
- * If SEED_CLIENT_PASSCODE is set and no clients exist yet, create one so a fresh
- * deploy is usable before you open the admin panel.
+ * If SEED_CLIENT_USERNAME and SEED_CLIENT_PASSCODE are set and no clients exist
+ * yet, create one so a fresh deploy is usable before you open the admin panel.
  */
 export async function ensureSeedClient(): Promise<void> {
   const pass = process.env.SEED_CLIENT_PASSCODE;
-  if (!pass) return;
+  const username = process.env.SEED_CLIENT_USERNAME;
+  if (!pass || !username) return;
   const existing = await listClients();
   if (existing.length) return;
   try {
     await createClient({
       name: process.env.SEED_CLIENT_NAME || "First client",
+      username,
       passcode: pass,
       plan: "max",
     });

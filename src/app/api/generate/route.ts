@@ -4,15 +4,7 @@ import sharp from "sharp";
 import { CLIENT_COOKIE, readClientId } from "@/lib/auth";
 import { getClient, refundCredits, spendCredits } from "@/lib/store";
 import { PLANS, creditCost, planAllows, planRequiredFor } from "@/lib/plans";
-import {
-  generateImage,
-  parseDataUrl,
-  styleBlock,
-  toDataUrl,
-  DEMO_MODE,
-  type ImageInput,
-  type StyleDescription,
-} from "@/lib/gemini";
+import { generateImage, parseDataUrl, toDataUrl, DEMO_MODE, type ImageInput } from "@/lib/gemini";
 import {
   buildEditPrompt,
   buildPrompt,
@@ -33,7 +25,6 @@ type Body = {
   model: string;
   aspect?: string;
   size?: "1K" | "2K" | "4K";
-  style?: Partial<StyleDescription> | null;
   // shot
   shotType?: ShotType;
   angleId?: string;
@@ -86,7 +77,6 @@ export async function POST(req: Request) {
 
   const source = parseDataUrl(body.source);
   const reference = body.reference ? parseDataUrl(body.reference) : undefined;
-  const style = styleBlock(body.style);
 
   let prompt: string;
   let references: ImageInput[];
@@ -103,7 +93,6 @@ export async function POST(req: Request) {
         lightingId: body.lightingId || "",
         backgroundId: body.backgroundId || "",
         extra: body.extra,
-        style,
       });
       if (body.seedHint) {
         prompt += `\n\nVARIATION ${body.seedHint}: choose a slightly different but equally natural pose/arrangement, camera distance and micro-composition than other takes, while obeying every rule above.`;
@@ -114,7 +103,7 @@ export async function POST(req: Request) {
     }
     case "edit": {
       if (!body.instruction?.trim()) return NextResponse.json({ error: "Missing edit instruction." }, { status: 400 });
-      prompt = buildEditPrompt(body.instruction, style);
+      prompt = buildEditPrompt(body.instruction);
       references = reference ? [source, reference] : [source];
       if (reference) {
         prompt +=
@@ -125,7 +114,6 @@ export async function POST(req: Request) {
     }
     case "upscale": {
       prompt = buildUpscalePrompt();
-      if (style) prompt += `\n\n${style}`;
       references = reference ? [source, reference] : [source];
       if (reference) {
         prompt += "\n\nThe FIRST image is the one to upscale. The SECOND image is the original product photo for texture and colour ground truth.";
@@ -136,7 +124,7 @@ export async function POST(req: Request) {
       break;
     }
     case "transform": {
-      prompt = buildTransformPrompt(body.transformId || "", body.detail ?? "", style);
+      prompt = buildTransformPrompt(body.transformId || "", body.detail ?? "");
       references = reference ? [source, reference] : [source];
       if (reference) prompt += "\n\nThe FIRST image is the one to transform. The SECOND image is the original product photo for fidelity.";
       actionLabel = `Transform${body.detail ? `: ${body.detail.slice(0, 30)}` : ""}`;
@@ -199,15 +187,25 @@ export async function POST(req: Request) {
   }
 }
 
-/** Re-encode model output as JPEG so responses stay under serverless size limits. */
+/**
+ * Vercel functions cap request AND response bodies at 4.5 MB. The image travels
+ * as base64 inside JSON (~4/3 of its byte size), so keep the encoded image well
+ * under that — stepping JPEG quality down for large 4K renders until it fits.
+ */
+const MAX_RESPONSE_IMAGE_B64 = 3_600_000;
+
 async function compress(img: ImageInput): Promise<ImageInput> {
   if (img.mimeType === "image/svg+xml") return img; // demo
   try {
     const buf = Buffer.from(img.data, "base64");
     const meta = await sharp(buf).metadata();
     const big = (meta.width ?? 0) * (meta.height ?? 0) > 2200 * 2200;
-    const jpeg = await sharp(buf).jpeg({ quality: big ? 86 : 92, mozjpeg: true }).toBuffer();
-    return { mimeType: "image/jpeg", data: jpeg.toString("base64") };
+    let out = "";
+    for (const quality of big ? [86, 80, 72, 64] : [92, 86, 78]) {
+      out = (await sharp(buf).jpeg({ quality, mozjpeg: true }).toBuffer()).toString("base64");
+      if (out.length <= MAX_RESPONSE_IMAGE_B64) break;
+    }
+    return { mimeType: "image/jpeg", data: out };
   } catch {
     return img;
   }

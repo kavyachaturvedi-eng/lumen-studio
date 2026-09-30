@@ -6,15 +6,14 @@ import { Gallery } from "./Gallery";
 import { Detail } from "./Detail";
 import { Logo } from "./Logo";
 import { CreditMeter } from "./CreditMeter";
-import { ApiError, callDescribe, callGenerate, callJudge, callMe, fileToSource, uid } from "@/lib/client";
-import { SHOT_TYPES, TRANSFORMS } from "@/lib/presets";
+import { ApiError, callGenerate, callJudge, callMe, fileToSource, uid } from "@/lib/client";
+import { ANGLES, SHOT_TYPES, TRANSFORMS } from "@/lib/presets";
 import { batchCost, creditCost } from "@/lib/plans";
-import type { StyleDescription } from "@/lib/style";
-import type { Me, Settings, Shot, SourceImage, StyleStatus } from "@/lib/types";
+import type { Me, Settings, Shot, SourceImage } from "@/lib/types";
 
 const DEFAULTS: Settings = {
   shotType: "flat-lay",
-  angleId: SHOT_TYPES["flat-lay"].defaultAngle,
+  angleIds: [SHOT_TYPES["flat-lay"].defaultAngle],
   lightingId: SHOT_TYPES["flat-lay"].defaultLighting,
   backgroundId: SHOT_TYPES["flat-lay"].defaultBackground,
   aspect: "4:5",
@@ -22,7 +21,6 @@ const DEFAULTS: Settings = {
   models: ["gemini-3.1-flash-image", "gemini-3-pro-image"],
   perModel: 2,
   size: "1K",
-  styleOn: true,
 };
 
 export function Studio() {
@@ -34,12 +32,7 @@ export function Studio() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
-  const [style, setStyle] = useState<StyleDescription | null>(null);
-  const [styleStatus, setStyleStatus] = useState<StyleStatus>("idle");
-  const [styleError, setStyleError] = useState<string | null>(null);
-
   const batchRef = useRef(0);
-  const describeSeq = useRef(0);
 
   useEffect(() => {
     callMe()
@@ -54,7 +47,7 @@ export function Studio() {
           return {
             ...s,
             shotType: first,
-            angleId: preset.defaultAngle,
+            angleIds: [preset.defaultAngle],
             lightingId: preset.defaultLighting,
             backgroundId: preset.defaultBackground,
           };
@@ -87,46 +80,28 @@ export function Studio() {
   const selected = shots.find((s) => s.id === selectedId) ?? null;
 
   const cost = useMemo(
-    () => batchCost(settings.shotType, settings.models, settings.perModel, settings.size),
-    [settings.shotType, settings.models, settings.perModel, settings.size],
+    () => batchCost(settings.shotType, settings.models, settings.perModel, settings.size, settings.angleIds.length),
+    [settings.shotType, settings.models, settings.perModel, settings.size, settings.angleIds.length],
   );
 
-  const bestId = useMemo(() => {
+  /** The highest-scoring take for each camera angle in the latest batch. */
+  const bestIds = useMemo(() => {
     const latest = Math.max(0, ...shots.map((s) => s.batch));
-    const cands = shots.filter((s) => s.batch === latest && s.kind === "shot" && s.score);
-    if (!cands.length) return null;
-    return cands.reduce((a, b) => (b.score!.overall > a.score!.overall ? b : a)).id;
+    const best = new Map<string, Shot>();
+    for (const s of shots) {
+      if (s.batch !== latest || s.kind !== "shot" || !s.score) continue;
+      const key = s.angleId ?? "";
+      const cur = best.get(key);
+      if (!cur || s.score.overall > cur.score!.overall) best.set(key, s);
+    }
+    return new Set([...best.values()].map((s) => s.id));
   }, [shots]);
-
-  /* ---------------- style description ---------------- */
-
-  const describe = useCallback(
-    async (dataUrl: string) => {
-      const seq = ++describeSeq.current;
-      setStyleStatus("loading");
-      setStyleError(null);
-      try {
-        const d = await callDescribe(dataUrl);
-        if (seq !== describeSeq.current) return; // a newer photo won
-        setStyle(d);
-        setStyleStatus("ready");
-      } catch (e) {
-        if (seq !== describeSeq.current) return;
-        setStyleError(e instanceof Error ? e.message : String(e));
-        setStyleStatus("error");
-      }
-    },
-    [],
-  );
 
   async function onSource(f: File) {
     try {
       const src = await fileToSource(f);
       setSource(src);
       setOriginal(src);
-      setStyle(null);
-      setStyleStatus("idle");
-      if (settings.styleOn) void describe(src.dataUrl);
     } catch (e) {
       flash(e instanceof Error ? e.message : "Could not read that file.");
     }
@@ -134,15 +109,7 @@ export function Studio() {
 
   function changeSettings(p: Partial<Settings>) {
     setSettings((s) => ({ ...s, ...p }));
-    // Turning the description on with a photo already loaded should fill it in.
-    if (p.styleOn === true && original && styleStatus === "idle") void describe(original.dataUrl);
   }
-
-  function editStyle(key: keyof StyleDescription, value: string) {
-    setStyle((s) => (s ? { ...s, [key]: value } : s));
-  }
-
-  const activeStyle = settings.styleOn && styleStatus === "ready" ? style : null;
 
   /* ---------------- generation ---------------- */
 
@@ -161,7 +128,7 @@ export function Studio() {
   async function run(shot: Shot, body: Record<string, unknown>): Promise<void> {
     setShots((prev) => [shot, ...prev]);
     try {
-      const r = await callGenerate({ ...body, style: activeStyle });
+      const r = await callGenerate(body);
       if (r.credits) {
         setMe((m) => (m ? { ...m, creditsLeft: r.credits!.left, percentLeft: r.credits!.percentLeft } : m));
       }
@@ -195,35 +162,43 @@ export function Studio() {
       return;
     }
     const batch = ++batchRef.current;
-    const label = SHOT_TYPES[settings.shotType].label;
+    const shotLabel = SHOT_TYPES[settings.shotType].label;
+    const multi = settings.angleIds.length > 1;
     const running: Promise<void>[] = [];
-    for (const model of settings.models) {
-      for (let i = 0; i < settings.perModel; i++) {
-        const shot: Shot = {
-          id: uid(),
-          batch,
-          kind: "shot",
-          label,
-          model,
-          status: "loading",
-          aspect: settings.aspect,
-          size: settings.size,
-          scoreStatus: "idle",
-          createdAt: Date.now(),
-        };
-        running.push(run(shot, {
-          mode: "shot",
-          source: source.dataUrl,
-          shotType: settings.shotType,
-          angleId: settings.angleId,
-          lightingId: settings.lightingId,
-          backgroundId: settings.backgroundId,
-          extra: settings.extra,
-          model,
-          aspect: settings.aspect,
-          size: settings.size,
-          seedHint: settings.perModel > 1 ? i + 1 : undefined,
-        }));
+    for (const angleId of settings.angleIds) {
+      const angleLabel = ANGLES.find((a) => a.id === angleId)?.label ?? "";
+      const label = multi && angleLabel ? `${shotLabel} · ${angleLabel}` : shotLabel;
+      for (const model of settings.models) {
+        for (let i = 0; i < settings.perModel; i++) {
+          const shot: Shot = {
+            id: uid(),
+            batch,
+            kind: "shot",
+            label,
+            model,
+            angleId,
+            status: "loading",
+            aspect: settings.aspect,
+            size: settings.size,
+            scoreStatus: "idle",
+            createdAt: Date.now(),
+          };
+          running.push(
+            run(shot, {
+              mode: "shot",
+              source: source.dataUrl,
+              shotType: settings.shotType,
+              angleId,
+              lightingId: settings.lightingId,
+              backgroundId: settings.backgroundId,
+              extra: settings.extra,
+              model,
+              aspect: settings.aspect,
+              size: settings.size,
+              seedHint: settings.perModel > 1 ? i + 1 : undefined,
+            }),
+          );
+        }
       }
     }
     void Promise.allSettled(running).then(refreshMe);
@@ -312,51 +287,42 @@ export function Studio() {
 
   return (
     <div className="flex min-h-screen flex-col lg:h-screen lg:overflow-hidden">
-      <header className="z-20 shrink-0 border-b bg-white/80 backdrop-blur hairline">
-        <div className="mx-auto flex max-w-[1680px] items-center justify-between gap-4 px-4 py-3 lg:px-6">
-          <div className="flex items-center gap-3">
-            <Logo className="h-9 w-9" />
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-[15px] font-semibold tracking-tight">Lumen Studio</span>
-                {me && (
-                  <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-stone-600">
-                    {me.planLabel}
-                  </span>
-                )}
-              </div>
-              <div className="truncate text-[11px] text-stone-500">{me ? me.name : "Loading account…"}</div>
+      <header className="z-20 shrink-0 border-b bg-white/85 backdrop-blur-md hairline">
+        <div className="mx-auto flex h-14 max-w-[1680px] items-center justify-between gap-4 px-4 lg:px-6">
+          <div className="flex min-w-0 items-center gap-3">
+            <Logo />
+            <span className="hidden h-5 w-px bg-[var(--line)] sm:block" />
+            <div className="hidden min-w-0 items-center gap-2 sm:flex">
+              <span className="truncate text-[13px] text-[var(--muted)]">{me ? me.name : "Loading…"}</span>
+              {me && <span className="badge">{me.planLabel}</span>}
             </div>
           </div>
           <div className="flex items-center gap-3">
-            {me?.demo && (
-              <span className="hidden rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-800 sm:inline">
-                Demo mode
-              </span>
-            )}
+            {me?.demo && <span className="badge !bg-amber-50 !text-amber-800">Demo mode</span>}
             {me && <CreditMeter percentLeft={me.percentLeft} creditsLeft={me.creditsLeft} compact />}
+            <form action="/api/logout" method="post">
+              <button className="rounded-lg p-2 text-[var(--muted)] transition-colors hover:bg-zinc-100 hover:text-[var(--ink)]" title="Sign out" aria-label="Sign out">
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H3" />
+                </svg>
+              </button>
+            </form>
           </div>
         </div>
       </header>
 
       <main className="mx-auto flex w-full max-w-[1680px] flex-1 flex-col gap-5 px-4 py-5 lg:min-h-0 lg:flex-row lg:items-stretch lg:overflow-hidden lg:px-6">
-        <Controls
-          me={me}
-          source={source}
-          onSource={onSource}
-          settings={settings}
-          onChange={changeSettings}
-          onGenerate={generate}
-          busy={busy}
-          cost={cost}
-          styleStatus={styleStatus}
-          style={style}
-          styleError={styleError}
-          onStyleChange={editStyle}
-          onStyleRegenerate={() => original && describe(original.dataUrl)}
-        />
-        <section id="gallery" className="flex min-w-0 flex-1 flex-col lg:overflow-y-auto lg:pr-1">
-          <Gallery shots={shots} selectedId={selectedId} onSelect={(id) => { setSelectedId(id); scrollTo("detail"); }} bestId={bestId} />
+        <Controls me={me} source={source} onSource={onSource} settings={settings} onChange={changeSettings} onGenerate={generate} busy={busy} cost={cost} />
+        <section id="gallery" className="scroll-quiet flex min-w-0 flex-1 flex-col lg:overflow-y-auto lg:pr-1">
+          <Gallery
+            shots={shots}
+            selectedId={selectedId}
+            onSelect={(id) => {
+              setSelectedId(id);
+              scrollTo("detail");
+            }}
+            bestIds={bestIds}
+          />
         </section>
         {selected && (
           <div id="detail" className="flex lg:contents">
@@ -377,7 +343,7 @@ export function Studio() {
       </main>
 
       {toast && (
-        <div className="rise fixed bottom-5 left-1/2 z-30 max-w-[92vw] -translate-x-1/2 rounded-full bg-stone-900 px-4 py-2.5 text-xs text-white shadow-xl">
+        <div className="rise fixed bottom-5 left-1/2 z-30 max-w-[92vw] -translate-x-1/2 rounded-xl bg-[var(--ink)] px-4 py-2.5 text-[12px] text-white shadow-xl">
           {toast}
         </div>
       )}

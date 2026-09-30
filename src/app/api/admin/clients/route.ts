@@ -6,8 +6,9 @@ import {
   getClient,
   getLog,
   listClients,
+  MIN_PASSCODE,
   resetUsage,
-  setPasscode,
+  setLogin,
   storageReady,
   topUp,
   updateClient,
@@ -32,19 +33,22 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as {
     name?: string;
+    username?: string;
     passcode?: string;
     plan?: string;
     credits?: number;
     note?: string;
   };
   if (!body.name?.trim()) return NextResponse.json({ error: "Client name is required." }, { status: 400 });
-  if (!body.passcode?.trim() || body.passcode.trim().length < 4) {
-    return NextResponse.json({ error: "Passcode must be at least 4 characters." }, { status: 400 });
+  if (!body.username?.trim()) return NextResponse.json({ error: "Username is required." }, { status: 400 });
+  if (!body.passcode?.trim() || body.passcode.trim().length < MIN_PASSCODE) {
+    return NextResponse.json({ error: `Passcode must be at least ${MIN_PASSCODE} characters.` }, { status: 400 });
   }
   const plan: PlanId = isPlanId(body.plan) ? body.plan : "basic";
   try {
     const client = await createClient({
       name: body.name,
+      username: body.username,
       passcode: body.passcode,
       plan,
       credits: typeof body.credits === "number" && body.credits > 0 ? Math.round(body.credits) : PLANS[plan].credits,
@@ -59,12 +63,13 @@ export async function POST(req: Request) {
 export async function PATCH(req: Request) {
   const body = (await req.json().catch(() => ({}))) as {
     id?: string;
-    action?: "update" | "topup" | "reset" | "passcode" | "delete";
+    action?: "update" | "topup" | "reset" | "login" | "delete";
     plan?: string;
     credits?: number;
     active?: boolean;
     name?: string;
     note?: string;
+    username?: string;
     passcode?: string;
   };
   if (!body.id) return NextResponse.json({ error: "Missing client id." }, { status: 400 });
@@ -80,12 +85,11 @@ export async function PATCH(req: Request) {
       }
       case "reset":
         return NextResponse.json({ client: await resetUsage(body.id) });
-      case "passcode": {
-        if (!body.passcode?.trim() || body.passcode.trim().length < 4) {
-          return NextResponse.json({ error: "Passcode must be at least 4 characters." }, { status: 400 });
+      case "login": {
+        if (!body.username?.trim() || !body.passcode?.trim()) {
+          return NextResponse.json({ error: "Enter both a username and a passcode." }, { status: 400 });
         }
-        await setPasscode(body.id, body.passcode);
-        return NextResponse.json({ client: await getClient(body.id) });
+        return NextResponse.json({ client: await setLogin(body.id, body.username, body.passcode) });
       }
       case "delete":
         await deleteClient(body.id);

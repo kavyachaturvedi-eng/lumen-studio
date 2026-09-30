@@ -20,24 +20,6 @@ export const SHOT_TYPES: Record<
   ShotType,
   { label: string; blurb: string; prompt: string; defaultAngle: string; defaultBackground: string; defaultLighting: string }
 > = {
-  packshot: {
-    label: "Packshot",
-    blurb: "Clean e-commerce shot on seamless white or grey.",
-    prompt:
-      "Clean e-commerce packshot of the exact garment from the reference photo. The garment is the only subject, centred, fully in frame with even margins, wrinkle-free and neatly presented. Seamless studio backdrop with a soft natural contact shadow so the garment never appears to float. No props, no people, no text.",
-    defaultAngle: "front-straight",
-    defaultBackground: "seamless-white",
-    defaultLighting: "softbox-even",
-  },
-  "ghost-mannequin": {
-    label: "Ghost mannequin",
-    blurb: "Invisible-mannequin look: 3D shape, no model, no stand.",
-    prompt:
-      "Ghost mannequin (invisible mannequin) product photograph of the exact garment from the reference photo. The garment holds a natural three-dimensional worn shape as if on an invisible body, with the inner back neckline visible through the collar opening, sleeves gently filled, hem hanging naturally. Absolutely no mannequin, stand, hanger, or person visible. Studio backdrop, soft contact shadow.",
-    defaultAngle: "front-straight",
-    defaultBackground: "seamless-white",
-    defaultLighting: "softbox-even",
-  },
   "flat-lay": {
     label: "Flat lay",
     blurb: "Top-down, folded or styled on a surface.",
@@ -47,14 +29,14 @@ export const SHOT_TYPES: Record<
     defaultBackground: "linen-neutral",
     defaultLighting: "window-daylight",
   },
-  lifestyle: {
-    label: "Lifestyle",
-    blurb: "Worn in a real-world scene by a model.",
+  "ghost-mannequin": {
+    label: "Ghost mannequin",
+    blurb: "Invisible-mannequin look: 3D shape, no model, no stand.",
     prompt:
-      "Editorial lifestyle photograph of a model wearing the exact garment from the reference photo in a believable real-world setting. The garment fits naturally with realistic drape and creasing, and its colour, print, trims and construction match the reference exactly. Candid, unforced pose; the garment stays the clear focal point. No readable signage or text anywhere in the scene.",
-    defaultAngle: "three-quarter",
-    defaultBackground: "urban-street",
-    defaultLighting: "golden-hour",
+      "Ghost mannequin (invisible mannequin) product photograph of the exact garment from the reference photo. The garment holds a natural three-dimensional worn shape as if on an invisible body, with the inner back neckline visible through the collar opening, sleeves gently filled, hem hanging naturally. Absolutely no mannequin, stand, hanger, or person visible. Studio backdrop, soft contact shadow.",
+    defaultAngle: "front-straight",
+    defaultBackground: "seamless-white",
+    defaultLighting: "softbox-even",
   },
   hero: {
     label: "Hero",
@@ -74,7 +56,28 @@ export const SHOT_TYPES: Record<
     defaultBackground: "seamless-white",
     defaultLighting: "raking-texture",
   },
+  lifestyle: {
+    label: "Lifestyle",
+    blurb: "Worn in a real-world scene by a model.",
+    prompt:
+      "Editorial lifestyle photograph of a model wearing the exact garment from the reference photo in a believable real-world setting. The garment fits naturally with realistic drape and creasing, and its colour, print, trims and construction match the reference exactly. Candid, unforced pose; the garment stays the clear focal point. No readable signage or text anywhere in the scene.",
+    defaultAngle: "three-quarter",
+    defaultBackground: "urban-street",
+    defaultLighting: "golden-hour",
+  },
+  packshot: {
+    label: "Packshot",
+    blurb: "Clean e-commerce shot on seamless white or grey.",
+    prompt:
+      "Clean e-commerce packshot of the exact garment from the reference photo. The garment is the only subject, centred, fully in frame with even margins, wrinkle-free and neatly presented. Seamless studio backdrop with a soft natural contact shadow so the garment never appears to float. No props, no people, no text.",
+    defaultAngle: "front-straight",
+    defaultBackground: "seamless-white",
+    defaultLighting: "softbox-even",
+  },
 };
+
+/** How many camera angles one run may shoot. Each angle gets its own set of takes. */
+export const MAX_ANGLES = 3;
 
 // Camera angles — mirrors the camera-angle skill vocabulary.
 export const ANGLES: Option[] = [
@@ -196,8 +199,6 @@ export interface BuildPromptArgs {
   lightingId: string;
   backgroundId: string;
   extra?: string;
-  /** Optional style-description block (see styleBlock() in gemini.ts). */
-  style?: string;
 }
 
 export function buildPrompt(a: BuildPromptArgs): string {
@@ -207,7 +208,6 @@ export function buildPrompt(a: BuildPromptArgs): string {
   const bg = BACKGROUNDS.find((x) => x.id === a.backgroundId) ?? BACKGROUNDS[0];
   const parts = [
     shot.prompt,
-    a.style?.trim() || "",
     `CAMERA: ${angle.prompt}`,
     `LIGHTING: ${light.prompt}`,
     `BACKGROUND / SETTING: ${bg.prompt}`,
@@ -217,11 +217,10 @@ export function buildPrompt(a: BuildPromptArgs): string {
   return parts.join("\n\n");
 }
 
-export function buildEditPrompt(instruction: string, style?: string): string {
+export function buildEditPrompt(instruction: string): string {
   return [
     `Edit the provided image according to this instruction: ${instruction.trim()}`,
     "Change ONLY what the instruction asks for. Everything else — the garment, its colour, print, trims, labels, the lighting and the composition — must remain identical to the input image.",
-    style?.trim() || "",
     FIDELITY_RULES,
   ]
     .filter(Boolean)
@@ -236,9 +235,9 @@ export function buildUpscalePrompt(): string {
   ].join("\n\n");
 }
 
-export function buildTransformPrompt(transformId: string, detail: string, style?: string): string {
+export function buildTransformPrompt(transformId: string, detail: string): string {
   const t = TRANSFORMS.find((x) => x.id === transformId) ?? TRANSFORMS[0];
-  return [t.prompt, detail.trim() ? `REQUEST: ${detail.trim()}` : "", style?.trim() || "", FIDELITY_RULES]
+  return [t.prompt, detail.trim() ? `REQUEST: ${detail.trim()}` : "", FIDELITY_RULES]
     .filter(Boolean)
     .join("\n\n");
 }

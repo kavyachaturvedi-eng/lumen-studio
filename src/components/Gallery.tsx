@@ -1,13 +1,14 @@
 "use client";
 
-import { MODELS } from "@/lib/presets";
+import { ANGLES, MODELS } from "@/lib/presets";
 import type { Shot } from "@/lib/types";
+import { LogoMark } from "./Logo";
 
 interface Props {
   shots: Shot[];
   selectedId: string | null;
   onSelect: (id: string) => void;
-  bestId: string | null;
+  bestIds: Set<string>;
 }
 
 export function modelLabel(id: string) {
@@ -16,42 +17,52 @@ export function modelLabel(id: string) {
 
 export function ScorePill({ score, small }: { score?: Shot["score"]; small?: boolean }) {
   if (!score) return null;
-  const tone =
-    score.verdict === "keep" ? "bg-emerald-600 text-white" : score.verdict === "review" ? "bg-amber-500 text-white" : "bg-red-600 text-white";
+  const dot = score.verdict === "keep" ? "bg-[var(--ok)]" : score.verdict === "review" ? "bg-[var(--warn)]" : "bg-[var(--bad)]";
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full font-semibold ${tone} ${small ? "px-2 py-0.5 text-[11px]" : "px-2.5 py-1 text-xs"}`}>
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full bg-white/95 font-mono font-medium text-[var(--ink)] shadow-sm ring-1 ring-black/5 backdrop-blur ${
+        small ? "px-2 py-0.5 text-[11px]" : "px-2.5 py-1 text-[12px]"
+      }`}
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
       {score.overall}
-      <span className="font-normal opacity-80">fidelity</span>
     </span>
   );
 }
 
-export function Gallery({ shots, selectedId, onSelect, bestId }: Props) {
+const angleRank = (id?: string) => (id ? ANGLES.findIndex((a) => a.id === id) : -1);
+
+const EMPTY_TILES = ["Flat lay", "Ghost", "Hero", "Detail", "Lifestyle", "Packshot"];
+
+export function Gallery({ shots, selectedId, onSelect, bestIds }: Props) {
   if (!shots.length) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center rounded-2xl border border-dashed border-stone-300 bg-white/50 p-10 text-center">
-        <div className="mb-4 grid grid-cols-3 gap-2">
-          {["Flat lay", "Ghost", "Hero", "Detail", "Lifestyle", "Packshot"].map((t, i) => (
+      <div className="flex flex-1 flex-col items-center justify-center rounded-2xl border border-dashed bg-white/60 p-10 text-center hairline">
+        <LogoMark className="mb-5 h-11 w-11" />
+        <h2 className="text-[17px] font-semibold tracking-tight">Your shots land here</h2>
+        <p className="mt-1.5 max-w-sm text-[13px] leading-relaxed text-[var(--muted)]">
+          Upload one photo, choose a shot type and up to three angles, then race both models. Every take is scored against your original for label,
+          colour and cut — the closest match per angle is flagged.
+        </p>
+        <div className="mt-7 grid grid-cols-6 gap-1.5 opacity-80">
+          {EMPTY_TILES.map((t, i) => (
             <div
               key={t}
-              className="grid h-16 w-[72px] place-items-center rounded-lg bg-stone-100 text-[10px] font-medium text-stone-400"
-              style={{ opacity: 1 - i * 0.11 }}
+              className="grid h-14 w-14 place-items-center rounded-lg border bg-[var(--surface-2)] font-mono text-[9px] uppercase tracking-wide text-[var(--subtle)] hairline"
+              style={{ opacity: 1 - i * 0.12 }}
             >
               {t}
             </div>
           ))}
         </div>
-        <h2 className="text-base font-semibold tracking-tight">Your shots will land here</h2>
-        <p className="mt-1.5 max-w-sm text-sm leading-relaxed text-stone-500">
-          Upload one photo, pick a shot type, and race both models. Every take is scored against your original for label, colour and shape fidelity — the best match gets flagged.
-        </p>
       </div>
     );
   }
 
-  // Newest batch first, then by score within a batch.
+  // Newest batch first; within a batch, group by angle, then best score first.
   const ordered = [...shots].sort((a, b) => {
     if (b.batch !== a.batch) return b.batch - a.batch;
+    if ((a.angleId ?? "") !== (b.angleId ?? "")) return angleRank(a.angleId) - angleRank(b.angleId);
     return (b.score?.overall ?? -1) - (a.score?.overall ?? -1);
   });
 
@@ -63,44 +74,48 @@ export function Gallery({ shots, selectedId, onSelect, bestId }: Props) {
           <button
             key={s.id}
             onClick={() => onSelect(s.id)}
-            className={`group relative overflow-hidden rounded-xl border bg-white text-left transition ${
-              on ? "border-stone-900 ring-2 ring-stone-900/10" : "border-stone-200 hover:border-stone-400"
+            className={`group relative overflow-hidden rounded-2xl border bg-white text-left transition ${
+              on ? "border-[var(--ink)] ring-2 ring-[var(--ink)]/10" : "border-[var(--line)] hover:border-[var(--line-strong)]"
             }`}
           >
             <div className="checker relative aspect-square w-full overflow-hidden">
-              {s.status === "loading" && <div className="shimmer absolute inset-0" />}
+              {s.status === "loading" && (
+                <div className="shimmer absolute inset-0 grid place-items-center">
+                  <span className="font-mono text-[10px] uppercase tracking-wider text-[var(--subtle)]">Rendering</span>
+                </div>
+              )}
               {s.status === "error" && (
-                <div className="absolute inset-0 grid place-items-center bg-red-50 p-3 text-center text-[11px] leading-snug text-red-700">
+                <div className="absolute inset-0 grid place-items-center bg-red-50/70 p-3 text-center text-[11px] leading-snug text-[var(--bad)]">
                   {s.error?.slice(0, 160) || "Generation failed"}
                 </div>
               )}
               {s.image && (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={s.image} alt={s.label} className="h-full w-full object-cover transition group-hover:scale-[1.02]" />
+                <img src={s.image} alt={s.label} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]" />
               )}
-              {s.id === bestId && (
-                <div className="absolute left-2 top-2 rounded-full bg-stone-900 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white shadow">
+              {bestIds.has(s.id) && (
+                <div className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-[var(--accent)] px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wide text-white shadow">
                   Best match
                 </div>
               )}
               {s.status === "done" && (
                 <div className="absolute bottom-2 right-2">
                   {s.scoreStatus === "loading" ? (
-                    <span className="rounded-full bg-white/90 px-2 py-0.5 text-[11px] text-stone-600 shadow">scoring…</span>
+                    <span className="rounded-full bg-white/95 px-2 py-0.5 font-mono text-[10px] text-[var(--muted)] shadow-sm">scoring…</span>
                   ) : (
                     <ScorePill score={s.score} small />
                   )}
                 </div>
               )}
             </div>
-            <div className="flex items-center justify-between gap-2 px-2.5 py-2">
+            <div className="flex items-center justify-between gap-2 px-3 py-2.5">
               <div className="min-w-0">
-                <div className="truncate text-xs font-medium">{s.label}</div>
-                <div className="truncate text-[11px] text-stone-500">
+                <div className="truncate text-[12px] font-medium">{s.label}</div>
+                <div className="truncate font-mono text-[10.5px] text-[var(--muted)]">
                   {modelLabel(s.model)} · {s.size}
                 </div>
               </div>
-              {s.kind !== "shot" && <span className="shrink-0 rounded bg-stone-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-stone-500">{s.kind}</span>}
+              {s.kind !== "shot" && <span className="badge shrink-0">{s.kind}</span>}
             </div>
           </button>
         );

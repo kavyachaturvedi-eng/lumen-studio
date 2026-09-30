@@ -1,4 +1,4 @@
-import type { JudgeScore, StyleDescription } from "./gemini";
+import type { JudgeScore } from "./gemini";
 import type { PlanId } from "./plans";
 import type { ShotType } from "./presets";
 
@@ -10,6 +10,8 @@ export interface Shot {
   kind: ShotKind;
   label: string; // e.g. "Ghost mannequin", "Edit: brighter", "Upscale 4K"
   model: string;
+  /** Camera angle this take was shot from (shots only). */
+  angleId?: string;
   status: "loading" | "done" | "error";
   image?: string; // data URL
   prompt?: string;
@@ -33,7 +35,8 @@ export interface SourceImage {
 
 export interface Settings {
   shotType: ShotType;
-  angleId: string;
+  /** One to MAX_ANGLES camera angles; each gets its own set of takes. */
+  angleIds: string[];
   lightingId: string;
   backgroundId: string;
   aspect: string;
@@ -41,8 +44,6 @@ export interface Settings {
   models: string[];
   perModel: number;
   size: "1K" | "2K";
-  /** Whether the style description is generated and fed into prompts. */
-  styleOn: boolean;
 }
 
 /** The signed-in client, as the studio sees them. No currency, ever. */
@@ -57,7 +58,3 @@ export interface Me {
   active: boolean;
   demo: boolean;
 }
-
-export type StyleDraft = StyleDescription;
-
-export type StyleStatus = "idle" | "loading" | "ready" | "error";

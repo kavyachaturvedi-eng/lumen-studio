@@ -52,16 +52,16 @@ export function Detail({
   const filename = `lumen-${shot.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${modelLabel(shot.model).toLowerCase().replace(/\s+/g, "")}-${shot.size}.${ext}`;
 
   return (
-    <aside className="card flex w-full flex-col gap-4 p-4 lg:w-[380px] lg:shrink-0 lg:overflow-y-auto [&>*]:shrink-0">
+    <aside className="card scroll-quiet flex w-full flex-col gap-4 p-4 lg:w-[380px] lg:shrink-0 lg:overflow-y-auto [&>*]:shrink-0">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="truncate text-sm font-semibold">{shot.label}</div>
-          <div className="text-xs text-stone-500">
+          <div className="truncate text-[14px] font-semibold tracking-tight">{shot.label}</div>
+          <div className="font-mono text-[11px] text-[var(--muted)]">
             {modelLabel(shot.model)} · {shot.aspect} · {shot.size}
             {shot.credits ? ` · ${shot.credits} cr` : ""}
           </div>
         </div>
-        <button onClick={onClose} className="rounded-lg p-1 text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700" aria-label="Close">
+        <button onClick={onClose} className="rounded-lg p-1 text-[var(--subtle)] transition-colors hover:bg-zinc-100 hover:text-[var(--ink)]" aria-label="Close">
           <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
             <path d="M6 6l12 12M18 6 6 18" />
           </svg>
@@ -70,7 +70,7 @@ export function Detail({
 
       <div className="checker overflow-hidden rounded-xl border hairline">
         {shot.status === "loading" && <div className="shimmer aspect-square w-full" />}
-        {shot.status === "error" && <div className="p-4 text-xs text-red-700">{shot.error}</div>}
+        {shot.status === "error" && <div className="p-4 text-xs text-[var(--bad)]">{shot.error}</div>}
         {shot.image && (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={shot.image} alt={shot.label} className="w-full object-contain" />
@@ -78,15 +78,15 @@ export function Detail({
       </div>
 
       {/* Fidelity review */}
-      <div className="rounded-xl bg-stone-50 p-3">
+      <div className="rounded-xl border bg-[var(--surface-2)] p-3 hairline">
         <div className="mb-2 flex items-center justify-between">
           <div className="label">Fidelity review</div>
           {shot.scoreStatus === "loading" ? (
-            <span className="text-[11px] text-stone-500">scoring…</span>
+            <span className="font-mono text-[11px] text-[var(--muted)]">scoring…</span>
           ) : shot.score ? (
             <ScorePill score={shot.score} />
           ) : ready ? (
-            <button className="text-[11px] underline" onClick={() => onRescore(shot)}>
+            <button className="text-[11px] font-medium text-[var(--accent)]" onClick={() => onRescore(shot)}>
               score now
             </button>
           ) : null}
@@ -103,21 +103,21 @@ export function Detail({
                 ] as const
               ).map(([k, v]) => (
                 <div key={k}>
-                  <div className="text-[10px] leading-tight text-stone-500">{k}</div>
-                  <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-stone-200">
+                  <div className="text-[10px] leading-tight text-[var(--muted)]">{k}</div>
+                  <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-zinc-200">
                     <div
-                      className={`h-full rounded-full ${v >= 8 ? "bg-emerald-600" : v >= 6 ? "bg-amber-500" : "bg-red-500"}`}
+                      className={`h-full rounded-full ${v >= 8 ? "bg-[var(--ok)]" : v >= 6 ? "bg-[var(--warn)]" : "bg-[var(--bad)]"}`}
                       style={{ width: `${v * 10}%` }}
                     />
                   </div>
-                  <div className="mt-0.5 text-[11px] font-medium tabular-nums">{v}/10</div>
+                  <div className="mt-1 font-mono text-[11px] tabular-nums">{v}/10</div>
                 </div>
               ))}
             </div>
-            <p className="mt-2 text-xs leading-snug text-stone-600">{shot.score.notes}</p>
+            <p className="mt-2.5 text-[12px] leading-snug text-[var(--ink-2)]">{shot.score.notes}</p>
           </>
         ) : (
-          <p className="text-xs text-stone-500">Each take is compared with your original photo for label, colour, cut and realism.</p>
+          <p className="text-[12px] text-[var(--muted)]">Each take is compared with your original photo for label, colour, cut and realism.</p>
         )}
       </div>
 
@@ -131,7 +131,7 @@ export function Detail({
       </div>
 
       <div>
-        <div className="mb-3 flex gap-1 rounded-xl bg-stone-100 p-1">
+        <div className="seg mb-3">
           {(
             [
               ["edit", "Edit"],
@@ -139,18 +139,14 @@ export function Detail({
               ["transform", "Transform"],
             ] as const
           ).map(([id, l]) => (
-            <button
-              key={id}
-              onClick={() => setTab(id)}
-              className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-medium transition-all ${tab === id ? "bg-white shadow-sm" : "text-stone-500 hover:text-stone-800"}`}
-            >
+            <button key={id} data-on={tab === id} onClick={() => setTab(id)}>
               {l}
             </button>
           ))}
         </div>
 
         <div className="mb-3">
-          <div className="mb-1.5 text-[11px] text-stone-500">Run with</div>
+          <div className="label mb-2">Run with</div>
           <div className="flex gap-1.5">
             {MODELS.map((m) => (
               <button key={m.id} className="chip" data-on={model === m.id} onClick={() => setModel(m.id)}>
@@ -178,13 +174,13 @@ export function Detail({
             <button className="btn-primary" disabled={!ready || !instruction.trim() || !afford(editCost)} onClick={() => onEdit(shot, instruction, model)}>
               Apply edit · {editCost} cr
             </button>
-            <p className="text-[11px] text-stone-500">Only what you ask for changes; the garment is re-checked against your original.</p>
+            <p className="text-[11px] text-[var(--muted)]">Only what you ask for changes; the garment is re-checked against your original.</p>
           </div>
         )}
 
         {tab === "upscale" && (
           <div className="flex flex-col gap-2">
-            <p className="text-xs text-stone-600">Re-render this exact image larger, recovering fabric texture and edge sharpness.</p>
+            <p className="text-[12px] text-[var(--ink-2)]">Re-render this exact image larger, recovering fabric texture and edge sharpness.</p>
             <div className="grid grid-cols-2 gap-2">
               <button className="btn-ghost" disabled={!ready || !afford(up2k)} onClick={() => onUpscale(shot, "2K", model)}>
                 2K · {up2k} cr
@@ -193,7 +189,7 @@ export function Detail({
                 4K · {up4k} cr
               </button>
             </div>
-            <p className="text-[11px] text-stone-500">4K always uses Nano Banana Pro.</p>
+            <p className="text-[11px] text-[var(--muted)]">4K always uses Nano Banana Pro.</p>
           </div>
         )}
 
@@ -220,15 +216,15 @@ export function Detail({
       </div>
 
       <div className="border-t pt-3 hairline">
-        <button className="text-[11px] text-stone-500 underline underline-offset-2" onClick={() => setShowPrompt((v) => !v)}>
+        <button className="text-[11px] text-[var(--muted)] underline underline-offset-2 hover:text-[var(--ink)]" onClick={() => setShowPrompt((v) => !v)}>
           {showPrompt ? "Hide" : "Show"} the prompt that was sent
         </button>
         {showPrompt && (
-          <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap rounded-xl bg-stone-900 p-3 font-mono text-[10.5px] leading-relaxed text-stone-100">
+          <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap rounded-xl bg-[var(--ink)] p-3 font-mono text-[10.5px] leading-relaxed text-zinc-100">
             {shot.prompt}
           </pre>
         )}
-        <button className="mt-2 block text-[11px] text-red-600 underline underline-offset-2" onClick={() => onDelete(shot)}>
+        <button className="mt-2 block text-[11px] text-[var(--bad)] underline underline-offset-2" onClick={() => onDelete(shot)}>
           Delete this take
         </button>
       </div>

@@ -25,19 +25,19 @@ export function Section({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-stone-50"
+        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-[var(--surface-2)]"
         aria-expanded={open}
       >
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="text-[13px] font-semibold">{title}</span>
+            <span className="text-[13px] font-semibold tracking-tight">{title}</span>
             {badge}
           </div>
-          {!open && summary && <div className="mt-0.5 truncate text-[11px] text-stone-500">{summary}</div>}
+          {!open && summary && <div className="mt-0.5 truncate text-[11px] text-[var(--muted)]">{summary}</div>}
         </div>
         <svg
           viewBox="0 0 24 24"
-          className={`h-4 w-4 shrink-0 text-stone-400 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+          className={`h-4 w-4 shrink-0 text-[var(--subtle)] transition-transform duration-200 ${open ? "rotate-180" : ""}`}
           fill="none"
           stroke="currentColor"
           strokeWidth="2"

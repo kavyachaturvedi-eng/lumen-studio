@@ -9,10 +9,13 @@ export async function proxy(req: NextRequest) {
   const alwaysOpen =
     pathname === "/unlock" ||
     pathname === "/api/unlock" ||
+    pathname === "/api/logout" ||
     pathname === "/admin/login" ||
     pathname === "/api/admin/login" ||
     pathname.startsWith("/_next") ||
-    pathname === "/favicon.ico";
+    pathname === "/favicon.ico" ||
+    pathname.startsWith("/icon") ||
+    pathname.startsWith("/apple-icon");
   if (alwaysOpen) return NextResponse.next();
 
   const isAdminArea = pathname === "/admin" || pathname.startsWith("/admin/") || pathname.startsWith("/api/admin");
@@ -39,5 +42,5 @@ export async function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|icon|apple-icon).*)"],
 };

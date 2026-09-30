@@ -2,11 +2,12 @@
 
 import { Suspense, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Logo } from "@/components/Logo";
+import { AuthShell, PasscodeInput } from "@/components/AuthShell";
 
 function UnlockForm() {
   const router = useRouter();
   const params = useSearchParams();
+  const [username, setUsername] = useState("");
   const [code, setCode] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -18,47 +19,47 @@ function UnlockForm() {
     const res = await fetch("/api/unlock", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ passcode: code }),
+      body: JSON.stringify({ username, passcode: code }),
     });
     const data = await res.json().catch(() => ({}));
     setBusy(false);
     if (res.ok && data.ok) router.replace(params.get("next") || "/");
-    else setErr(data.error || "That passcode isn't recognised.");
+    else setErr(data.error || "That username and passcode don't match.");
   }
 
   return (
-    <form onSubmit={submit} className="card rise w-full max-w-sm p-8 shadow-sm">
-      <div className="mb-7 flex items-center gap-3">
-        <Logo />
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight">Lumen Studio</h1>
-          <p className="text-xs text-stone-500">AI product photography</p>
-        </div>
-      </div>
-      <label className="label mb-2 block">Your passcode</label>
-      <input
-        autoFocus
-        type="password"
-        className="input"
-        value={code}
-        onChange={(e) => setCode(e.target.value)}
-        placeholder="Enter the passcode you were given"
-      />
-      {err && <p className="mt-2 text-xs text-red-600">{err}</p>}
-      <button className="btn-primary mt-4 w-full" disabled={busy || !code}>
+    <form onSubmit={submit} className="space-y-4">
+      <label className="block">
+        <span className="label mb-2 block">Username</span>
+        <input
+          autoFocus
+          autoComplete="username"
+          autoCapitalize="none"
+          spellCheck={false}
+          className="input"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          placeholder="e.g. bombaby"
+        />
+      </label>
+      <label className="block">
+        <span className="label mb-2 block">Passcode</span>
+        <PasscodeInput value={code} onChange={setCode} placeholder="The passcode you were given" />
+      </label>
+      {err && <p className="text-[12px] text-[var(--bad)]">{err}</p>}
+      <button className="btn-primary w-full py-3" disabled={busy || !username.trim() || !code}>
         {busy ? "Checking…" : "Enter studio"}
       </button>
-      <p className="mt-5 text-center text-[11px] text-stone-400">Private studio. Ask the owner for access.</p>
     </form>
   );
 }
 
 export default function UnlockPage() {
   return (
-    <main className="flex flex-1 items-center justify-center p-6">
+    <AuthShell title="Sign in to your studio" subtitle="Use the username and passcode the studio sent you." footer="Private studio · ask the owner for access">
       <Suspense>
         <UnlockForm />
       </Suspense>
-    </main>
+    </AuthShell>
   );
 }
