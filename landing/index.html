@@ -124,6 +124,7 @@ h3 { font-size: 19px; letter-spacing: -0.02em; line-height: 1.25; }
 .connector .lbl { font-family: var(--mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent-2); }
 .proof-note { padding: 16px 28px 22px; border-top: 1px solid var(--line); font-family: var(--mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); text-align: center; }
 .shot .art img { width: 100%; height: 100%; object-fit: cover; }
+.shot .art svg { width: 100%; height: 100%; display: block; }
 
 /* sections */
 section.block { padding: 120px 0; }
@@ -723,11 +724,20 @@ footer .wrap { display: flex; justify-content: space-between; align-items: cente
   var onScroll = function () { nav.classList.toggle("scrolled", window.scrollY > 8); };
   window.addEventListener("scroll", onScroll, { passive: true }); onScroll();
 
-  // Shot-type cards: real photos where we have a run, SVG for the rest
+  // Shot-type cards — illustrated (real photos live only in How it works)
   var tee = function (x, y, s, rot, extra) {
     return '<g transform="translate(' + x + ' ' + y + ') rotate(' + (rot || 0) + ' ' + s / 2 + ' ' + s / 2 + ')" style="color:var(--garment)"' + (extra || "") + '><use href="#tee" width="' + s + '" height="' + s + '"/></g>';
   };
   var art = {
+    flat: function () {
+      return '<rect width="100" height="125" fill="#e9e4dc"/><g opacity=".35" stroke="#cfc6ba" stroke-width=".6">' +
+        Array.from({ length: 14 }, function (_, i) { return '<path d="M0 ' + (i * 9 + 3) + ' Q50 ' + (i * 9 + 6) + ' 100 ' + (i * 9 + 2) + '"/>'; }).join("") + '</g>' +
+        '<circle cx="84" cy="104" r="7" fill="#c9bfae"/><rect x="8" y="10" width="14" height="10" rx="2" fill="#d8cfc2"/>' + tee(12, 18, 76, 0);
+    },
+    ghost: function () {
+      return '<rect width="100" height="125" fill="#fff"/><ellipse cx="50" cy="106" rx="26" ry="3.2" fill="#000" opacity=".08"/>' + tee(12, 16, 76, 0) +
+        '<ellipse cx="50" cy="28.5" rx="5" ry="2.2" fill="#3b0c13" opacity=".85"/>';
+    },
     hero: function () {
       return '<defs><radialGradient id="hg" cx=".5" cy=".35" r=".7"><stop offset="0" stop-color="#3a3a46"/><stop offset="1" stop-color="#0b0b0f"/></radialGradient></defs><rect width="100" height="125" fill="url(#hg)"/>' +
         '<g filter="drop-shadow(0 0 5px rgba(125,149,255,.55))">' + tee(8, 20, 84, -6) + '</g><rect x="10" y="100" width="34" height="3" rx="1.5" fill="#fff" opacity=".85"/><rect x="10" y="107" width="22" height="2" rx="1" fill="#fff" opacity=".4"/>';
@@ -737,24 +747,26 @@ footer .wrap { display: flex; justify-content: space-between; align-items: cente
       for (var i = -2; i < 26; i++) g += '<path d="M' + (i * 6) + ' 0 L' + (i * 6 - 40) + ' 125" stroke="#5e1520" stroke-width="2.4"/><path d="M' + (i * 6 + 3) + ' 0 L' + (i * 6 + 43) + ' 125" stroke="#8f2a37" stroke-width="1.3" opacity=".7"/>';
       return '<rect width="100" height="125" fill="#7a1f2b"/>' + g + '<g fill="none" stroke="#E9C46A" stroke-width="2.2"><path d="M-5 72 h110 M-5 80 h110"/><path d="M-5 92 l8 8 8-8 8 8 8-8 8 8 8-8 8 8 8-8 8 8 8-8 8 8 8-8 8 8"/></g><circle cx="70" cy="40" r="26" fill="none" stroke="#fff" stroke-width="1" stroke-dasharray="2 3" opacity=".7"/>';
     },
+    life: function () {
+      return '<defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f3d9b8"/><stop offset="1" stop-color="#e8c4a0"/></linearGradient></defs><rect width="100" height="125" fill="url(#sky)"/>' +
+        '<rect x="0" y="20" width="26" height="90" fill="#dcae86"/><rect x="74" y="8" width="26" height="102" fill="#d7a57b"/><path d="M26 110 V40 a24 24 0 0 1 48 0 V110" fill="#efcfae"/><rect y="104" width="100" height="21" fill="#c99670"/>' +
+        '<circle cx="50" cy="22" r="7" fill="#8a5a3c"/><rect x="44" y="84" width="5" height="22" rx="2" fill="#2b2b31"/><rect x="51" y="84" width="5" height="22" rx="2" fill="#2b2b31"/>' + tee(22, 22, 56, 0);
+    },
     pack: function () {
       return '<rect width="100" height="125" fill="#f1f1f4"/><ellipse cx="50" cy="104" rx="28" ry="3" fill="#000" opacity=".1"/>' + tee(10, 14, 80, 0);
     }
   };
   var shots = [
-    { k: "flat", t: "Flat lay", tier: "Basic", d: "Top-down, folded or styled on a surface.", photo: "examples/flat-lay.jpg" },
-    { k: "ghost", t: "Ghost mannequin", tier: "Basic", d: "Invisible-mannequin 3D shape — no model, no stand.", photo: "examples/ghost-mannequin.jpg" },
+    { k: "flat", t: "Flat lay", tier: "Basic", d: "Top-down, folded or styled on a surface." },
+    { k: "ghost", t: "Ghost mannequin", tier: "Basic", d: "Invisible-mannequin 3D shape — no model, no stand." },
     { k: "hero", t: "Hero", tier: "Pro", d: "Dramatic campaign image with room for your headline." },
     { k: "detail", t: "Detail / macro", tier: "Pro", d: "Close-up of fabric weave, print, stitching or trims." },
-    { k: "life", t: "Lifestyle", tier: "Max", d: "Worn by a model in a believable real-world scene.", photo: "examples/lifestyle.jpg" },
+    { k: "life", t: "Lifestyle", tier: "Max", d: "Worn by a model in a believable real-world scene." },
     { k: "pack", t: "Packshot", tier: "Max", d: "Clean e-commerce shot on seamless white or grey." }
   ];
   var svg = function (k) { return '<svg viewBox="0 0 100 125" width="100%" height="100%" preserveAspectRatio="xMidYMid slice">' + art[k]() + "</svg>"; };
   document.getElementById("shotgrid").innerHTML = shots.map(function (s) {
-    var artHtml = s.photo
-      ? '<img src="' + s.photo + '" alt="' + s.t + ' example" width="824" height="1024" loading="lazy" decoding="async" />'
-      : svg(s.k).replace('viewBox="0 0 100 125"', 'viewBox="0 12 100 69"');
-    return '<div class="shot rv"><div class="art">' + artHtml + '</div><div class="body"><div class="t"><h3>' + s.t + '</h3><span class="tier' + (s.tier === "Basic" ? " basic" : "") + '">' + s.tier + "</span></div><p>" + s.d + "</p></div></div>";
+    return '<div class="shot rv"><div class="art">' + svg(s.k).replace('viewBox="0 0 100 125"', 'viewBox="0 12 100 69"') + '</div><div class="body"><div class="t"><h3>' + s.t + '</h3><span class="tier' + (s.tier === "Basic" ? " basic" : "") + '">' + s.tier + "</span></div><p>" + s.d + "</p></div></div>";
   }).join("");
 
   // Credit calculator — same formula as the studio:
