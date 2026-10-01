@@ -24,4 +24,14 @@ shows your Gemini cost.
 4. Deploy. Your studio app keeps deploying from the repo root as before.
 
 Everything is self-contained: fonts (Geist, SIL Open Font License) are in
-`fonts/`, the illustrations are inline SVG, and there are no external requests.
+`fonts/`, real before/after examples live in `examples/`, remaining shot-type
+illustrations are inline SVG, and there are no external requests.
+
+## Example photos
+
+`examples/` holds one real Lumen Studio run used on the landing page:
+
+- `source.jpg` — phone mirror selfie (input)
+- `flat-lay.jpg`, `ghost-mannequin.jpg`, `lifestyle.jpg` — curated outputs
+
+Only use photos you have rights to publish (garment + any person’s likeness).
